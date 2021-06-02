@@ -4,7 +4,13 @@ pub struct Archeon {
 
 impl Archeon {
     pub async fn ignite() -> Archeon {
+        let _ = Self::transfer().await;
+
         Archeon { ignited: true }
+    }
+
+    async fn transfer() {
+        // unimplemented!()
     }
 }
 
