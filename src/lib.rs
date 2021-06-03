@@ -1,16 +1,16 @@
+mod transfer;
+
+use crate::transfer::Transfer;
+
 pub struct Archeon {
     pub ignited: bool,
 }
 
 impl Archeon {
     pub async fn ignite() -> Archeon {
-        let _ = Self::transfer().await;
+        Transfer::init().await;
 
         Archeon { ignited: true }
-    }
-
-    async fn transfer() {
-        // unimplemented!()
     }
 }
 
