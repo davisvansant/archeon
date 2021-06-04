@@ -24,6 +24,11 @@ impl Transfer {
         }
     }
 
+    pub(crate) async fn launch(&self) {
+        let uri = self.uri.to_owned();
+        self.client.get(uri).await;
+    }
+
     async fn get_content_length(&self) -> HeaderValue {
         let request = Request::head(&self.uri)
             .body(Body::empty())
@@ -63,6 +68,21 @@ mod tests {
             "/with/path/and/query",
         );
         assert_eq!(test_transfer.initialized, true);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn launch() -> Result<(), hyper::Error> {
+        let test_mock_url = mockito::server_url();
+        let test_transfer = Transfer::init(&test_mock_url).await;
+        let mock = mock("GET", "/")
+            .with_status(200)
+            .with_header("Content-Length", "100000")
+            .with_body("")
+            .create();
+        test_transfer.launch().await;
+        mock.assert();
+        assert!(mock.matched());
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
