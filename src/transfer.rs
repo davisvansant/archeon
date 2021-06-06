@@ -7,6 +7,7 @@ use hyper_tls::HttpsConnector;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
+use std::path::PathBuf;
 use std::str::FromStr;
 
 pub(crate) struct Transfer {
@@ -60,6 +61,12 @@ impl Transfer {
         let mut file = File::create("foo.txt").await?;
         file.write_all(&bytes).await?;
         Ok(())
+    }
+
+    async fn get_file_length(file: PathBuf) -> Result<u64, std::io::Error> {
+        let open_file = File::open(file).await?;
+        let open_file_metadata = open_file.metadata().await?;
+        Ok(open_file_metadata.len())
     }
 }
 
@@ -133,6 +140,17 @@ mod tests {
         let test_file_metadata = test_file.metadata().await?;
         assert_eq!(test_file_metadata.is_file(), true);
         assert_eq!(test_file_metadata.len(), 10);
+        tokio::fs::remove_file("foo.txt").await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_file_length() -> Result<(), std::io::Error> {
+        let test_bytes = Bytes::from("test_bytes");
+        Transfer::create_file(test_bytes).await?;
+        let test_file_path = PathBuf::from("foo.txt");
+        let test_file = Transfer::get_file_length(test_file_path).await?;
+        assert_eq!(test_file, 10);
         tokio::fs::remove_file("foo.txt").await?;
         Ok(())
     }
