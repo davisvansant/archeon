@@ -147,11 +147,12 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn get_file_length() -> Result<(), std::io::Error> {
         let test_bytes = Bytes::from("test_bytes");
-        Transfer::create_file(test_bytes).await?;
-        let test_file_path = PathBuf::from("foo.txt");
-        let test_file = Transfer::get_file_length(test_file_path).await?;
-        assert_eq!(test_file, 10);
-        tokio::fs::remove_file("foo.txt").await?;
+        if let Ok(()) = Transfer::create_file(test_bytes).await {
+            let test_file_path = PathBuf::from("foo.txt");
+            let test_file = Transfer::get_file_length(test_file_path).await?;
+            assert_eq!(test_file, 10);
+            tokio::fs::remove_file("foo.txt").await?;
+        }
         Ok(())
     }
 }
