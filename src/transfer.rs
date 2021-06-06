@@ -4,6 +4,9 @@ use hyper::header::{HeaderValue, CONTENT_LENGTH};
 use hyper::{Body, Client, Request, Uri};
 use hyper_tls::HttpsConnector;
 
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+
 use std::str::FromStr;
 
 pub(crate) struct Transfer {
@@ -51,6 +54,12 @@ impl Transfer {
     async fn body_to_bytes(body: Body) -> Result<Bytes, hyper::Error> {
         let bytes = to_bytes(body).await?;
         Ok(bytes)
+    }
+
+    async fn create_file(bytes: Bytes) -> Result<(), std::io::Error> {
+        let mut file = File::create("foo.txt").await?;
+        file.write_all(&bytes).await?;
+        Ok(())
     }
 }
 
@@ -113,6 +122,18 @@ mod tests {
         let test_body_to_bytes = Transfer::body_to_bytes(test_body).await?;
         assert_eq!(test_body_to_bytes.len(), 9);
         assert_eq!(test_body_to_bytes, Bytes::from("test_body"));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn create_file() -> Result<(), std::io::Error> {
+        let test_bytes = Bytes::from("test_bytes");
+        Transfer::create_file(test_bytes).await?;
+        let test_file = File::open("foo.txt").await?;
+        let test_file_metadata = test_file.metadata().await?;
+        assert_eq!(test_file_metadata.is_file(), true);
+        assert_eq!(test_file_metadata.len(), 10);
+        tokio::fs::remove_file("foo.txt").await?;
         Ok(())
     }
 }
