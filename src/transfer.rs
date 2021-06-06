@@ -1,3 +1,4 @@
+use hyper::body::{to_bytes, Bytes};
 use hyper::client::connect::HttpConnector;
 use hyper::header::{HeaderValue, CONTENT_LENGTH};
 use hyper::{Body, Client, Request, Uri};
@@ -45,6 +46,11 @@ impl Transfer {
         } else {
             panic!("Could not retrieve 'Content-Length' header!")
         }
+    }
+
+    async fn body_to_bytes(body: Body) -> Result<Bytes, hyper::Error> {
+        let bytes = to_bytes(body).await?;
+        Ok(bytes)
     }
 }
 
@@ -98,6 +104,15 @@ mod tests {
         mock.assert();
         assert!(mock.matched());
         assert_eq!(test_content_length_value.to_str().unwrap(), "100000");
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn body_to_bytes() -> Result<(), hyper::Error> {
+        let test_body = Body::from("test_body");
+        let test_body_to_bytes = Transfer::body_to_bytes(test_body).await?;
+        assert_eq!(test_body_to_bytes.len(), 9);
+        assert_eq!(test_body_to_bytes, Bytes::from("test_body"));
         Ok(())
     }
 }
