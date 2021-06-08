@@ -15,6 +15,7 @@ use std::str::FromStr;
 pub(crate) struct Transfer {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     uri: Uri,
+    filename: String,
     pub(crate) initialized: bool,
 }
 
@@ -23,10 +24,12 @@ impl Transfer {
         let https = HttpsConnector::new();
         let client = Client::builder().build(https);
         let uri = Uri::from_str(uri).expect("Unable to parse URI!");
+        let filename = Self::get_filename(&uri).await;
 
         Transfer {
             client,
             uri,
+            filename,
             initialized: true,
         }
     }
@@ -90,6 +93,19 @@ impl Transfer {
         let open_file = File::open(file).await?;
         let open_file_metadata = open_file.metadata().await?;
         Ok(open_file_metadata.len())
+    }
+
+    async fn get_filename(uri: &Uri) -> String {
+        match uri.path_and_query() {
+            None => panic!("cannot get filename from URI!"),
+            Some(path_and_query) => {
+                let filename = path_and_query.as_str().rsplit_once("/");
+                match filename {
+                    None => path_and_query.as_str().to_string(),
+                    Some(filename) => filename.1.to_string(),
+                }
+            }
+        }
     }
 }
 
@@ -184,5 +200,12 @@ mod tests {
             tokio::fs::remove_file(&test_file_path).await?;
         }
         Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_filename() {
+        let test_uri = "http://some_test_authority/with/path/and/query.extension";
+        let test_transfer = Transfer::init(test_uri).await;
+        assert_eq!(test_transfer.filename, "query.extension");
     }
 }
