@@ -4,10 +4,12 @@ use hyper::header::{HeaderValue, CONTENT_LENGTH};
 use hyper::{Body, Client, Request, Uri};
 use hyper_tls::HttpsConnector;
 
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 pub(crate) struct Transfer {
@@ -57,13 +59,34 @@ impl Transfer {
         Ok(bytes)
     }
 
-    async fn create_file(bytes: Bytes) -> Result<(), std::io::Error> {
-        let mut file = File::create("foo.txt").await?;
+    async fn create_file(
+        file: &str,
+        bytes: Bytes,
+        content_length: HeaderValue,
+    ) -> Result<(), std::io::Error> {
+        let mut file_path = PathBuf::with_capacity(15);
+        file_path.push(file);
+
+        let mut file = File::create(&file_path).await?;
         file.write_all(&bytes).await?;
+
+        let mut initial_size = Transfer::get_file_length(&file_path).await?;
+        let content_length_str = content_length.to_str().unwrap();
+        let total_size = u64::from_str(content_length_str).unwrap();
+        let progress_bar = ProgressBar::new(total_size);
+
+        while initial_size < total_size {
+            let current_size = Transfer::get_file_length(&file_path).await?;
+            initial_size = current_size;
+            progress_bar.set_position(current_size);
+        }
+
+        progress_bar.finish();
+
         Ok(())
     }
 
-    async fn get_file_length(file: PathBuf) -> Result<u64, std::io::Error> {
+    async fn get_file_length(file: &Path) -> Result<u64, std::io::Error> {
         let open_file = File::open(file).await?;
         let open_file_metadata = open_file.metadata().await?;
         Ok(open_file_metadata.len())
@@ -135,23 +158,30 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn create_file() -> Result<(), std::io::Error> {
         let test_bytes = Bytes::from("test_bytes");
-        Transfer::create_file(test_bytes).await?;
-        let test_file = File::open("foo.txt").await?;
-        let test_file_metadata = test_file.metadata().await?;
-        assert_eq!(test_file_metadata.is_file(), true);
-        assert_eq!(test_file_metadata.len(), 10);
-        tokio::fs::remove_file("foo.txt").await?;
+        let test_content_length = HeaderValue::from_static("10");
+        let test_filename = "test_create_file.txt";
+        if let Ok(()) = Transfer::create_file(test_filename, test_bytes, test_content_length).await
+        {
+            let test_file = File::open(test_filename).await?;
+            let test_file_metadata = test_file.metadata().await?;
+            assert_eq!(test_file_metadata.is_file(), true);
+            assert_eq!(test_file_metadata.len(), 10);
+            tokio::fs::remove_file(&test_filename).await?;
+        }
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn get_file_length() -> Result<(), std::io::Error> {
         let test_bytes = Bytes::from("test_bytes");
-        if let Ok(()) = Transfer::create_file(test_bytes).await {
-            let test_file_path = PathBuf::from("foo.txt");
-            let test_file = Transfer::get_file_length(test_file_path).await?;
+        let test_content_length = HeaderValue::from_static("10");
+        let test_filename = "test_get_file_length.txt";
+        if let Ok(()) = Transfer::create_file(test_filename, test_bytes, test_content_length).await
+        {
+            let test_file_path = PathBuf::from(test_filename);
+            let test_file = Transfer::get_file_length(&test_file_path).await?;
             assert_eq!(test_file, 10);
-            tokio::fs::remove_file("foo.txt").await?;
+            tokio::fs::remove_file(&test_file_path).await?;
         }
         Ok(())
     }
