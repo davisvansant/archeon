@@ -6,9 +6,10 @@ use hyper_tls::HttpsConnector;
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
-use tokio::fs::File;
+use tokio::fs::{create_dir, File};
 use tokio::io::AsyncWriteExt;
 
+use std::env::temp_dir;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -109,6 +110,19 @@ impl Transfer {
         let mut path = PathBuf::with_capacity(15);
         path.push(filename);
         path
+    }
+
+    async fn create_temp_dir() -> Result<(), std::io::Error> {
+        let mut path = PathBuf::with_capacity(15);
+        let temp_dir = temp_dir();
+        let temp_dir_path = "archeon";
+
+        path.push(temp_dir);
+        path.push(temp_dir_path);
+
+        create_dir(path).await?;
+
+        Ok(())
     }
 }
 
@@ -218,5 +232,13 @@ mod tests {
         let test_filename = "some_test_filename.extension";
         let test_path = Transfer::create_path(&test_filename).await;
         assert_eq!(test_path.to_str().unwrap(), "some_test_filename.extension");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn create_temp_dir() -> Result<(), std::io::Error> {
+        Transfer::create_temp_dir().await?;
+        let test_temp_dir_metadata = tokio::fs::metadata("/tmp/archeon").await?;
+        assert_eq!(test_temp_dir_metadata.is_dir(), true);
+        Ok(())
     }
 }
