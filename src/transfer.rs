@@ -15,7 +15,7 @@ use std::str::FromStr;
 pub(crate) struct Transfer {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     uri: Uri,
-    filename: String,
+    filename: PathBuf,
     pub(crate) initialized: bool,
 }
 
@@ -63,23 +63,20 @@ impl Transfer {
     }
 
     async fn create_file(
-        file: &str,
+        &self,
         bytes: Bytes,
         content_length: HeaderValue,
     ) -> Result<(), std::io::Error> {
-        let mut file_path = PathBuf::with_capacity(15);
-        file_path.push(file);
-
-        let mut file = File::create(&file_path).await?;
+        let mut file = File::create(&self.filename).await?;
         file.write_all(&bytes).await?;
 
-        let mut initial_size = Transfer::get_file_length(&file_path).await?;
+        let mut initial_size = Transfer::get_file_length(&self.filename).await?;
         let content_length_str = content_length.to_str().unwrap();
         let total_size = u64::from_str(content_length_str).unwrap();
         let progress_bar = ProgressBar::new(total_size);
 
         while initial_size < total_size {
-            let current_size = Transfer::get_file_length(&file_path).await?;
+            let current_size = Transfer::get_file_length(&self.filename).await?;
             initial_size = current_size;
             progress_bar.set_position(current_size);
         }
@@ -95,14 +92,14 @@ impl Transfer {
         Ok(open_file_metadata.len())
     }
 
-    async fn get_filename(uri: &Uri) -> String {
+    async fn get_filename(uri: &Uri) -> PathBuf {
         match uri.path_and_query() {
             None => panic!("cannot get filename from URI!"),
             Some(path_and_query) => {
                 let filename = path_and_query.as_str().rsplit_once("/");
                 match filename {
-                    None => path_and_query.as_str().to_string(),
-                    Some(filename) => filename.1.to_string(),
+                    None => Self::create_path(path_and_query.as_str()).await,
+                    Some(filename) => Self::create_path(filename.1).await,
                 }
             }
         }
@@ -181,14 +178,15 @@ mod tests {
     async fn create_file() -> Result<(), std::io::Error> {
         let test_bytes = Bytes::from("test_bytes");
         let test_content_length = HeaderValue::from_static("10");
-        let test_filename = "test_create_file.txt";
-        if let Ok(()) = Transfer::create_file(test_filename, test_bytes, test_content_length).await
+        let test_uri = "http://test-create-file/test_create_file.txt";
+        let test_transfer = Transfer::init(test_uri).await;
+        if let Ok(()) = Transfer::create_file(&test_transfer, test_bytes, test_content_length).await
         {
-            let test_file = File::open(test_filename).await?;
+            let test_file = File::open(&test_transfer.filename).await?;
             let test_file_metadata = test_file.metadata().await?;
             assert_eq!(test_file_metadata.is_file(), true);
             assert_eq!(test_file_metadata.len(), 10);
-            tokio::fs::remove_file(&test_filename).await?;
+            tokio::fs::remove_file(&test_transfer.filename).await?;
         }
         Ok(())
     }
@@ -197,13 +195,13 @@ mod tests {
     async fn get_file_length() -> Result<(), std::io::Error> {
         let test_bytes = Bytes::from("test_bytes");
         let test_content_length = HeaderValue::from_static("10");
-        let test_filename = "test_get_file_length.txt";
-        if let Ok(()) = Transfer::create_file(test_filename, test_bytes, test_content_length).await
+        let test_uri = "http://get-file-length/test_get_file_length.txt";
+        let test_transfer = Transfer::init(test_uri).await;
+        if let Ok(()) = Transfer::create_file(&test_transfer, test_bytes, test_content_length).await
         {
-            let test_file_path = PathBuf::from(test_filename);
-            let test_file = Transfer::get_file_length(&test_file_path).await?;
+            let test_file = Transfer::get_file_length(&test_transfer.filename).await?;
             assert_eq!(test_file, 10);
-            tokio::fs::remove_file(&test_file_path).await?;
+            tokio::fs::remove_file(&test_transfer.filename).await?;
         }
         Ok(())
     }
@@ -212,7 +210,7 @@ mod tests {
     async fn get_filename() {
         let test_uri = "http://some_test_authority/with/path/and/query.extension";
         let test_transfer = Transfer::init(test_uri).await;
-        assert_eq!(test_transfer.filename, "query.extension");
+        assert_eq!(test_transfer.filename.to_str().unwrap(), "query.extension");
     }
 
     #[tokio::test(flavor = "multi_thread")]
