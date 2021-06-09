@@ -70,13 +70,13 @@ impl Transfer {
         let mut file = File::create(&self.filename).await?;
         file.write_all(&bytes).await?;
 
-        let mut initial_size = Transfer::get_file_length(&self.filename).await?;
+        let mut initial_size = self.get_file_length().await?;
         let content_length_str = content_length.to_str().unwrap();
         let total_size = u64::from_str(content_length_str).unwrap();
         let progress_bar = ProgressBar::new(total_size);
 
         while initial_size < total_size {
-            let current_size = Transfer::get_file_length(&self.filename).await?;
+            let current_size = self.get_file_length().await?;
             initial_size = current_size;
             progress_bar.set_position(current_size);
         }
@@ -86,8 +86,8 @@ impl Transfer {
         Ok(())
     }
 
-    async fn get_file_length(file: &Path) -> Result<u64, std::io::Error> {
-        let open_file = File::open(file).await?;
+    async fn get_file_length(&self) -> Result<u64, std::io::Error> {
+        let open_file = File::open(&self.filename).await?;
         let open_file_metadata = open_file.metadata().await?;
         Ok(open_file_metadata.len())
     }
@@ -199,7 +199,7 @@ mod tests {
         let test_transfer = Transfer::init(test_uri).await;
         if let Ok(()) = Transfer::create_file(&test_transfer, test_bytes, test_content_length).await
         {
-            let test_file = Transfer::get_file_length(&test_transfer.filename).await?;
+            let test_file = test_transfer.get_file_length().await?;
             assert_eq!(test_file, 10);
             tokio::fs::remove_file(&test_transfer.filename).await?;
         }
