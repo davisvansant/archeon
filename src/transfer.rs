@@ -107,6 +107,12 @@ impl Transfer {
             }
         }
     }
+
+    async fn create_path(filename: &str) -> PathBuf {
+        let mut path = PathBuf::with_capacity(15);
+        path.push(filename);
+        path
+    }
 }
 
 #[cfg(test)]
@@ -207,5 +213,12 @@ mod tests {
         let test_uri = "http://some_test_authority/with/path/and/query.extension";
         let test_transfer = Transfer::init(test_uri).await;
         assert_eq!(test_transfer.filename, "query.extension");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn create_path() {
+        let test_filename = "some_test_filename.extension";
+        let test_path = Transfer::create_path(&test_filename).await;
+        assert_eq!(test_path.to_str().unwrap(), "some_test_filename.extension");
     }
 }
