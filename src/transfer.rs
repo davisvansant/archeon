@@ -80,7 +80,11 @@ impl Transfer {
         bytes: Bytes,
         content_length: HeaderValue,
     ) -> Result<(), std::io::Error> {
-        let mut file = File::create(&self.filename).await?;
+        let mut temp_dir_path = PathBuf::with_capacity(15);
+        temp_dir_path.push(&self.temp_dir);
+        temp_dir_path.push(&self.filename);
+
+        let mut file = File::create(&temp_dir_path).await?;
         file.write_all(&bytes).await?;
 
         let mut initial_size = self.get_file_length().await?;
@@ -100,7 +104,11 @@ impl Transfer {
     }
 
     async fn get_file_length(&self) -> Result<u64, std::io::Error> {
-        let open_file = File::open(&self.filename).await?;
+        let mut temp_dir_path = PathBuf::with_capacity(15);
+        temp_dir_path.push(&self.temp_dir);
+        temp_dir_path.push(&self.filename);
+
+        let open_file = File::open(&temp_dir_path).await?;
         let open_file_metadata = open_file.metadata().await?;
         Ok(open_file_metadata.len())
     }
@@ -227,11 +235,14 @@ mod tests {
         let test_transfer = Transfer::init(test_uri).await;
         if let Ok(()) = Transfer::create_file(&test_transfer, test_bytes, test_content_length).await
         {
-            let test_file = File::open(&test_transfer.filename).await?;
+            let mut temp_dir_path = PathBuf::with_capacity(15);
+            temp_dir_path.push(&test_transfer.temp_dir);
+            temp_dir_path.push(&test_transfer.filename);
+            let test_file = File::open(&temp_dir_path).await?;
             let test_file_metadata = test_file.metadata().await?;
             assert_eq!(test_file_metadata.is_file(), true);
             assert_eq!(test_file_metadata.len(), 10);
-            tokio::fs::remove_file(&test_transfer.filename).await?;
+            tokio::fs::remove_file(&temp_dir_path).await?;
         }
         Ok(())
     }
@@ -246,7 +257,10 @@ mod tests {
         {
             let test_file = test_transfer.get_file_length().await?;
             assert_eq!(test_file, 10);
-            tokio::fs::remove_file(&test_transfer.filename).await?;
+            let mut temp_dir_path = PathBuf::with_capacity(15);
+            temp_dir_path.push(&test_transfer.temp_dir);
+            temp_dir_path.push(&test_transfer.filename);
+            tokio::fs::remove_file(&temp_dir_path).await?;
         }
         Ok(())
     }
