@@ -6,8 +6,9 @@ use hyper_tls::HttpsConnector;
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
-use tokio::fs::{create_dir, File};
+use tokio::fs::{create_dir_all, File};
 use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 
 use std::env::temp_dir;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ pub(crate) struct Transfer {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     uri: Uri,
     filename: PathBuf,
+    temp_dir: PathBuf,
     pub(crate) initialized: bool,
 }
 
@@ -26,18 +28,28 @@ impl Transfer {
         let client = Client::builder().build(https);
         let uri = Uri::from_str(uri).expect("Unable to parse URI!");
         let filename = Self::get_filename(&uri).await;
+        let temp_dir = Self::create_temp_dir().await;
 
         Transfer {
             client,
             uri,
             filename,
+            temp_dir,
             initialized: true,
         }
     }
 
     pub(crate) async fn launch(&self) {
         let uri = self.uri.to_owned();
-        self.client.get(uri).await;
+        let content_length = self.get_content_length().await;
+        match self.client.get(uri).await {
+            Ok(response) => {
+                let response_body = response.into_body();
+                let bytes = Self::body_to_bytes(response_body).await.unwrap();
+                // self.create_file(bytes, content_length).await.unwrap();
+            }
+            Err(error) => panic!("we need to retry here {}", error),
+        }
     }
 
     async fn get_content_length(&self) -> HeaderValue {
@@ -112,7 +124,8 @@ impl Transfer {
         path
     }
 
-    async fn create_temp_dir() -> Result<(), std::io::Error> {
+    // async fn create_temp_dir() -> Result<PathBuf, std::io::Error> {
+    async fn create_temp_dir() -> PathBuf {
         let mut path = PathBuf::with_capacity(15);
         let temp_dir = temp_dir();
         let temp_dir_path = "archeon";
@@ -120,7 +133,25 @@ impl Transfer {
         path.push(temp_dir);
         path.push(temp_dir_path);
 
-        create_dir(path).await?;
+        match create_dir_all(&path).await {
+            Ok(()) => path,
+            Err(error) => panic!("{}", error),
+        }
+
+        // Ok(path)
+    }
+
+    async fn install_package(&self) -> Result<(), std::io::Error> {
+        let command = Command::new("dpkg")
+            .arg("--install")
+            .arg(&self.filename)
+            .current_dir(&self.temp_dir)
+            .output()
+            .await?;
+
+        println!("{:?}", command.status);
+        println!("{:#?}", String::from_utf8(command.stdout));
+        println!("{:#?}", String::from_utf8(command.stderr));
 
         Ok(())
     }
@@ -154,8 +185,8 @@ mod tests {
         let test_transfer = Transfer::init(&test_mock_url).await;
         let mock = mock("GET", "/")
             .with_status(200)
-            .with_header("Content-Length", "100000")
-            .with_body("")
+            // .with_header("content-length", "100000")
+            .with_body(b"test_body")
             .create();
         test_transfer.launch().await;
         mock.assert();
@@ -236,9 +267,28 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn create_temp_dir() -> Result<(), std::io::Error> {
-        Transfer::create_temp_dir().await?;
+        Transfer::create_temp_dir().await;
         let test_temp_dir_metadata = tokio::fs::metadata("/tmp/archeon").await?;
         assert_eq!(test_temp_dir_metadata.is_dir(), true);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn install_package() -> Result<(), std::io::Error> {
+        // let f = Path::new("some_test_filename.deb");
+        let test_mock_url = mockito::server_url();
+        // test_mock_url.push_str("/some_test_filename.deb");
+        let test_transfer = Transfer::init(&test_mock_url).await;
+        // let mock = mock("GET", "/some_test_filename.deb")
+        let mock = mock("GET", "/")
+            .with_status(200)
+            // .with_body_from_file(f)
+            .with_body(b"test_body")
+            .create();
+        test_transfer.launch().await;
+        test_transfer.install_package().await?;
+        mock.assert();
+        assert!(mock.matched());
         Ok(())
     }
 }
