@@ -132,7 +132,6 @@ impl Transfer {
         path
     }
 
-    // async fn create_temp_dir() -> Result<PathBuf, std::io::Error> {
     async fn create_temp_dir() -> PathBuf {
         let mut path = PathBuf::with_capacity(15);
         let temp_dir = temp_dir();
@@ -145,8 +144,6 @@ impl Transfer {
             Ok(()) => path,
             Err(error) => panic!("{}", error),
         }
-
-        // Ok(path)
     }
 
     async fn install_package(&self) -> Result<(), std::io::Error> {
@@ -193,7 +190,7 @@ mod tests {
         let test_transfer = Transfer::init(&test_mock_url).await;
         let mock = mock("GET", "/")
             .with_status(200)
-            // .with_header("content-length", "100000")
+            .with_header("content-length", "9")
             .with_body(b"test_body")
             .create();
         test_transfer.launch().await;
