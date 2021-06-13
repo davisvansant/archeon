@@ -19,6 +19,7 @@ pub(crate) struct Transfer {
     uri: Uri,
     filename: PathBuf,
     temp_dir: PathBuf,
+    file_path: PathBuf,
     pub(crate) initialized: bool,
 }
 
@@ -29,12 +30,14 @@ impl Transfer {
         let uri = Uri::from_str(uri).expect("Unable to parse URI!");
         let filename = Self::get_filename(&uri).await;
         let temp_dir = Self::create_temp_dir().await;
+        let file_path = Self::set_file_path(&temp_dir, &filename).await;
 
         Transfer {
             client,
             uri,
             filename,
             temp_dir,
+            file_path,
             initialized: true,
         }
     }
@@ -160,6 +163,15 @@ impl Transfer {
 
         Ok(())
     }
+
+    async fn set_file_path(temp_dir: &Path, filename: &Path) -> PathBuf {
+        let mut file_path = PathBuf::with_capacity(15);
+
+        file_path.push(temp_dir);
+        file_path.push(filename);
+
+        file_path
+    }
 }
 
 #[cfg(test)]
@@ -232,14 +244,11 @@ mod tests {
         let test_transfer = Transfer::init(test_uri).await;
         if let Ok(()) = Transfer::create_file(&test_transfer, test_bytes, test_content_length).await
         {
-            let mut temp_dir_path = PathBuf::with_capacity(15);
-            temp_dir_path.push(&test_transfer.temp_dir);
-            temp_dir_path.push(&test_transfer.filename);
-            let test_file = File::open(&temp_dir_path).await?;
+            let test_file = File::open(&test_transfer.file_path).await?;
             let test_file_metadata = test_file.metadata().await?;
             assert_eq!(test_file_metadata.is_file(), true);
             assert_eq!(test_file_metadata.len(), 10);
-            tokio::fs::remove_file(&temp_dir_path).await?;
+            tokio::fs::remove_file(&test_transfer.file_path).await?;
         }
         Ok(())
     }
@@ -254,10 +263,7 @@ mod tests {
         {
             let test_file = test_transfer.get_file_length().await?;
             assert_eq!(test_file, 10);
-            let mut temp_dir_path = PathBuf::with_capacity(15);
-            temp_dir_path.push(&test_transfer.temp_dir);
-            temp_dir_path.push(&test_transfer.filename);
-            tokio::fs::remove_file(&temp_dir_path).await?;
+            tokio::fs::remove_file(&test_transfer.file_path).await?;
         }
         Ok(())
     }
@@ -300,6 +306,19 @@ mod tests {
         test_transfer.install_package().await?;
         mock.assert();
         assert!(mock.matched());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn set_file_path() -> Result<(), std::io::Error> {
+        let test_uri = "http://some_test_authority/with/path/and/query.extension";
+        let test_transfer = Transfer::init(test_uri).await;
+        let test_set_file_path =
+            Transfer::set_file_path(&test_transfer.temp_dir, &test_transfer.filename).await;
+        assert_eq!(
+            test_transfer.file_path.to_str().unwrap(),
+            "/tmp/archeon/query.extension",
+        );
         Ok(())
     }
 }
