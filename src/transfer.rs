@@ -6,13 +6,13 @@ use hyper_tls::HttpsConnector;
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
-use tokio::fs::{create_dir_all, File};
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
-
 use std::env::temp_dir;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+
+use tokio::fs::{create_dir_all, File};
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 
 pub(crate) struct Transfer {
     client: Client<HttpsConnector<HttpConnector>, Body>,
