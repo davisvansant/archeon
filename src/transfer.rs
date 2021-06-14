@@ -83,11 +83,8 @@ impl Transfer {
         bytes: Bytes,
         content_length: HeaderValue,
     ) -> Result<(), std::io::Error> {
-        let mut temp_dir_path = PathBuf::with_capacity(15);
-        temp_dir_path.push(&self.temp_dir);
-        temp_dir_path.push(&self.filename);
+        let mut file = File::create(&self.file_path).await?;
 
-        let mut file = File::create(&temp_dir_path).await?;
         file.write_all(&bytes).await?;
 
         let mut initial_size = self.get_file_length().await?;
@@ -107,11 +104,7 @@ impl Transfer {
     }
 
     async fn get_file_length(&self) -> Result<u64, std::io::Error> {
-        let mut temp_dir_path = PathBuf::with_capacity(15);
-        temp_dir_path.push(&self.temp_dir);
-        temp_dir_path.push(&self.filename);
-
-        let open_file = File::open(&temp_dir_path).await?;
+        let open_file = File::open(&self.file_path).await?;
         let open_file_metadata = open_file.metadata().await?;
         Ok(open_file_metadata.len())
     }
