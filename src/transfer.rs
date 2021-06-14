@@ -28,9 +28,9 @@ impl Transfer {
         let https = HttpsConnector::new();
         let client = Client::builder().build(https);
         let uri = Uri::from_str(uri).expect("Unable to parse URI!");
-        let filename = Self::get_filename(&uri).await;
-        let temp_dir = Self::create_temp_dir().await;
-        let file_path = Self::set_file_path(&temp_dir, &filename).await;
+        let filename = Self::init_filename(&uri).await;
+        let temp_dir = Self::init_temp_dir().await;
+        let file_path = Self::init_file_path(&temp_dir, &filename).await;
 
         Transfer {
             client,
@@ -42,20 +42,62 @@ impl Transfer {
         }
     }
 
+    async fn init_filename(uri: &Uri) -> PathBuf {
+        match uri.path_and_query() {
+            None => panic!("cannot get filename from URI!"),
+            Some(path_and_query) => {
+                let filename = path_and_query.as_str().rsplit_once("/");
+                match filename {
+                    None => Self::init_create_path(path_and_query.as_str()).await,
+                    Some(filename) => Self::init_create_path(filename.1).await,
+                }
+            }
+        }
+    }
+
+    async fn init_create_path(filename: &str) -> PathBuf {
+        let mut path = PathBuf::with_capacity(15);
+        path.push(filename);
+        path
+    }
+
+    async fn init_temp_dir() -> PathBuf {
+        let mut path = PathBuf::with_capacity(15);
+        let temp_dir = temp_dir();
+        let temp_dir_path = "archeon";
+
+        path.push(temp_dir);
+        path.push(temp_dir_path);
+
+        match create_dir_all(&path).await {
+            Ok(()) => path,
+            Err(error) => panic!("{}", error),
+        }
+    }
+
+    async fn init_file_path(temp_dir: &Path, filename: &Path) -> PathBuf {
+        let mut file_path = PathBuf::with_capacity(15);
+
+        file_path.push(temp_dir);
+        file_path.push(filename);
+
+        file_path
+    }
+
     pub(crate) async fn launch(&self) {
         let uri = self.uri.to_owned();
-        let content_length = self.get_content_length().await;
+        let content_length = self.launch_content_length().await;
         match self.client.get(uri).await {
             Ok(response) => {
                 let response_body = response.into_body();
-                let bytes = Self::body_to_bytes(response_body).await.unwrap();
+                let bytes = Self::launch_body_to_bytes(response_body).await.unwrap();
                 // self.create_file(bytes, content_length).await.unwrap();
             }
             Err(error) => panic!("we need to retry here {}", error),
         }
     }
 
-    async fn get_content_length(&self) -> HeaderValue {
+    async fn launch_content_length(&self) -> HeaderValue {
         let request = Request::head(&self.uri)
             .body(Body::empty())
             .expect("Could not Build Request!");
@@ -73,12 +115,12 @@ impl Transfer {
         }
     }
 
-    async fn body_to_bytes(body: Body) -> Result<Bytes, hyper::Error> {
+    async fn launch_body_to_bytes(body: Body) -> Result<Bytes, hyper::Error> {
         let bytes = to_bytes(body).await?;
         Ok(bytes)
     }
 
-    async fn create_file(
+    async fn launch_create_file(
         &self,
         bytes: Bytes,
         content_length: HeaderValue,
@@ -87,13 +129,13 @@ impl Transfer {
 
         file.write_all(&bytes).await?;
 
-        let mut initial_size = self.get_file_length().await?;
+        let mut initial_size = self.launch_get_file_length().await?;
         let content_length_str = content_length.to_str().unwrap();
         let total_size = u64::from_str(content_length_str).unwrap();
         let progress_bar = ProgressBar::new(total_size);
 
         while initial_size < total_size {
-            let current_size = self.get_file_length().await?;
+            let current_size = self.launch_get_file_length().await?;
             initial_size = current_size;
             progress_bar.set_position(current_size);
         }
@@ -103,43 +145,10 @@ impl Transfer {
         Ok(())
     }
 
-    async fn get_file_length(&self) -> Result<u64, std::io::Error> {
+    async fn launch_get_file_length(&self) -> Result<u64, std::io::Error> {
         let open_file = File::open(&self.file_path).await?;
         let open_file_metadata = open_file.metadata().await?;
         Ok(open_file_metadata.len())
-    }
-
-    async fn get_filename(uri: &Uri) -> PathBuf {
-        match uri.path_and_query() {
-            None => panic!("cannot get filename from URI!"),
-            Some(path_and_query) => {
-                let filename = path_and_query.as_str().rsplit_once("/");
-                match filename {
-                    None => Self::create_path(path_and_query.as_str()).await,
-                    Some(filename) => Self::create_path(filename.1).await,
-                }
-            }
-        }
-    }
-
-    async fn create_path(filename: &str) -> PathBuf {
-        let mut path = PathBuf::with_capacity(15);
-        path.push(filename);
-        path
-    }
-
-    async fn create_temp_dir() -> PathBuf {
-        let mut path = PathBuf::with_capacity(15);
-        let temp_dir = temp_dir();
-        let temp_dir_path = "archeon";
-
-        path.push(temp_dir);
-        path.push(temp_dir_path);
-
-        match create_dir_all(&path).await {
-            Ok(()) => path,
-            Err(error) => panic!("{}", error),
-        }
     }
 
     async fn install_package(&self) -> Result<(), std::io::Error> {
@@ -156,15 +165,6 @@ impl Transfer {
 
         Ok(())
     }
-
-    async fn set_file_path(temp_dir: &Path, filename: &Path) -> PathBuf {
-        let mut file_path = PathBuf::with_capacity(15);
-
-        file_path.push(temp_dir);
-        file_path.push(filename);
-
-        file_path
-    }
 }
 
 #[cfg(test)]
@@ -173,7 +173,7 @@ mod tests {
     use mockito::mock;
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn transfer() {
+    async fn init() {
         let test_uri = "http://some_test_authority/with/path/and/query";
         let test_transfer = Transfer::init(test_uri).await;
         let test_uri_parts = test_transfer.uri.into_parts();
@@ -187,6 +187,45 @@ mod tests {
             "/with/path/and/query",
         );
         assert_eq!(test_transfer.initialized, true);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn init_filename() {
+        let test_uri = "http://some_test_authority/with/path/and/query.extension";
+        let test_transfer = Transfer::init(test_uri).await;
+        assert_eq!(test_transfer.filename.to_str().unwrap(), "query.extension");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn init_create_path() {
+        let test_filename = "some_test_filename.extension";
+        let test_path = Transfer::init_create_path(&test_filename).await;
+        assert_eq!(test_path.to_str().unwrap(), "some_test_filename.extension");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn init_temp_dir() -> Result<(), std::io::Error> {
+        Transfer::init_temp_dir().await;
+        let test_temp_dir_metadata = tokio::fs::metadata("/tmp/archeon").await?;
+        assert_eq!(test_temp_dir_metadata.is_dir(), true);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn init_file_path() -> Result<(), std::io::Error> {
+        let test_uri = "http://some_test_authority/with/path/and/query.extension";
+        let test_transfer = Transfer::init(test_uri).await;
+        let test_init_file_path =
+            Transfer::init_file_path(&test_transfer.temp_dir, &test_transfer.filename).await;
+        assert_eq!(
+            test_transfer.file_path.to_str().unwrap(),
+            "/tmp/archeon/query.extension",
+        );
+        assert_eq!(
+            test_init_file_path.to_str().unwrap(),
+            "/tmp/archeon/query.extension",
+        );
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -205,7 +244,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn get_content_length() -> Result<(), hyper::Error> {
+    async fn lauch_content_length() -> Result<(), hyper::Error> {
         let test_mock_url = mockito::server_url();
         let test_transfer = Transfer::init(&test_mock_url).await;
         let mock = mock("HEAD", "/")
@@ -213,7 +252,7 @@ mod tests {
             .with_header("Content-Length", "100000")
             .with_body("")
             .create();
-        let test_content_length_value = test_transfer.get_content_length().await;
+        let test_content_length_value = test_transfer.launch_content_length().await;
         mock.assert();
         assert!(mock.matched());
         assert_eq!(test_content_length_value.to_str().unwrap(), "100000");
@@ -221,21 +260,22 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn body_to_bytes() -> Result<(), hyper::Error> {
+    async fn launch_body_to_bytes() -> Result<(), hyper::Error> {
         let test_body = Body::from("test_body");
-        let test_body_to_bytes = Transfer::body_to_bytes(test_body).await?;
+        let test_body_to_bytes = Transfer::launch_body_to_bytes(test_body).await?;
         assert_eq!(test_body_to_bytes.len(), 9);
         assert_eq!(test_body_to_bytes, Bytes::from("test_body"));
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn create_file() -> Result<(), std::io::Error> {
+    async fn launch_create_file() -> Result<(), std::io::Error> {
         let test_bytes = Bytes::from("test_bytes");
         let test_content_length = HeaderValue::from_static("10");
         let test_uri = "http://test-create-file/test_create_file.txt";
         let test_transfer = Transfer::init(test_uri).await;
-        if let Ok(()) = Transfer::create_file(&test_transfer, test_bytes, test_content_length).await
+        if let Ok(()) =
+            Transfer::launch_create_file(&test_transfer, test_bytes, test_content_length).await
         {
             let test_file = File::open(&test_transfer.file_path).await?;
             let test_file_metadata = test_file.metadata().await?;
@@ -247,39 +287,18 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn get_file_length() -> Result<(), std::io::Error> {
+    async fn launch_get_file_length() -> Result<(), std::io::Error> {
         let test_bytes = Bytes::from("test_bytes");
         let test_content_length = HeaderValue::from_static("10");
         let test_uri = "http://get-file-length/test_get_file_length.txt";
         let test_transfer = Transfer::init(test_uri).await;
-        if let Ok(()) = Transfer::create_file(&test_transfer, test_bytes, test_content_length).await
+        if let Ok(()) =
+            Transfer::launch_create_file(&test_transfer, test_bytes, test_content_length).await
         {
-            let test_file = test_transfer.get_file_length().await?;
+            let test_file = test_transfer.launch_get_file_length().await?;
             assert_eq!(test_file, 10);
             tokio::fs::remove_file(&test_transfer.file_path).await?;
         }
-        Ok(())
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn get_filename() {
-        let test_uri = "http://some_test_authority/with/path/and/query.extension";
-        let test_transfer = Transfer::init(test_uri).await;
-        assert_eq!(test_transfer.filename.to_str().unwrap(), "query.extension");
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn create_path() {
-        let test_filename = "some_test_filename.extension";
-        let test_path = Transfer::create_path(&test_filename).await;
-        assert_eq!(test_path.to_str().unwrap(), "some_test_filename.extension");
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn create_temp_dir() -> Result<(), std::io::Error> {
-        Transfer::create_temp_dir().await;
-        let test_temp_dir_metadata = tokio::fs::metadata("/tmp/archeon").await?;
-        assert_eq!(test_temp_dir_metadata.is_dir(), true);
         Ok(())
     }
 
@@ -299,19 +318,6 @@ mod tests {
         test_transfer.install_package().await?;
         mock.assert();
         assert!(mock.matched());
-        Ok(())
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn set_file_path() -> Result<(), std::io::Error> {
-        let test_uri = "http://some_test_authority/with/path/and/query.extension";
-        let test_transfer = Transfer::init(test_uri).await;
-        let test_set_file_path =
-            Transfer::set_file_path(&test_transfer.temp_dir, &test_transfer.filename).await;
-        assert_eq!(
-            test_transfer.file_path.to_str().unwrap(),
-            "/tmp/archeon/query.extension",
-        );
         Ok(())
     }
 }
