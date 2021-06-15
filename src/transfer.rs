@@ -238,14 +238,21 @@ mod tests {
             .build()
             .unwrap();
         let test_transfer = Transfer::init(&test_path_and_query.to_string()).await;
-        let mock = mock("GET", "/test_launch_file.txt")
+        let mock_get_request = mock("GET", "/test_launch_file.txt")
+            .with_status(200)
+            .with_header("content-length", "9")
+            .with_body(b"test_body")
+            .create();
+        let mock_head_request = mock("HEAD", "/test_launch_file.txt")
             .with_status(200)
             .with_header("content-length", "9")
             .with_body(b"test_body")
             .create();
         test_transfer.launch().await;
-        mock.assert();
-        assert!(mock.matched());
+        mock_get_request.assert();
+        assert!(mock_get_request.matched());
+        mock_head_request.assert();
+        assert!(mock_head_request.matched());
         assert_eq!(
             test_transfer.file_path.to_str().unwrap(),
             "/tmp/archeon/test_launch_file.txt",
