@@ -8,7 +8,8 @@ pub struct Archeon {
 
 impl Archeon {
     pub async fn ignite() -> Archeon {
-        Transfer::init("http://some_test_authority/with/path/and/query").await;
+        let _transfer = Transfer::init("http://some_test_authority/with/path/and/query").await;
+        // transfer.launch().await;
 
         Archeon { ignited: true }
     }

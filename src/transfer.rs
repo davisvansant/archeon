@@ -4,7 +4,7 @@ use hyper::header::{HeaderValue, CONTENT_LENGTH};
 use hyper::{Body, Client, Request, Uri};
 use hyper_tls::HttpsConnector;
 
-use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::ProgressBar;
 
 use std::env::temp_dir;
 use std::path::{Path, PathBuf};
@@ -14,17 +14,16 @@ use tokio::fs::{create_dir_all, File};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-pub(crate) struct Transfer {
-    client: Client<HttpsConnector<HttpConnector>, Body>,
-    uri: Uri,
-    filename: PathBuf,
-    temp_dir: PathBuf,
-    file_path: PathBuf,
-    pub(crate) initialized: bool,
+pub struct Transfer {
+    pub client: Client<HttpsConnector<HttpConnector>, Body>,
+    pub uri: Uri,
+    pub filename: PathBuf,
+    pub temp_dir: PathBuf,
+    pub file_path: PathBuf,
 }
 
 impl Transfer {
-    pub(crate) async fn init(uri: &str) -> Transfer {
+    pub async fn init(uri: &str) -> Transfer {
         let https = HttpsConnector::new();
         let client = Client::builder().build(https);
         let uri = Uri::from_str(uri).expect("Unable to parse URI!");
@@ -38,7 +37,6 @@ impl Transfer {
             filename,
             temp_dir,
             file_path,
-            initialized: true,
         }
     }
 
@@ -84,14 +82,16 @@ impl Transfer {
         file_path
     }
 
-    pub(crate) async fn launch(&self) {
+    pub async fn launch(&self) {
         let uri = self.uri.to_owned();
         let content_length = self.launch_content_length().await;
         match self.client.get(uri).await {
             Ok(response) => {
                 let response_body = response.into_body();
                 let bytes = Self::launch_body_to_bytes(response_body).await.unwrap();
-                // self.create_file(bytes, content_length).await.unwrap();
+                // self.launch_create_file(bytes, content_length)
+                //     .await
+                //     .unwrap();
             }
             Err(error) => panic!("we need to retry here {}", error),
         }
@@ -126,6 +126,7 @@ impl Transfer {
         content_length: HeaderValue,
     ) -> Result<(), std::io::Error> {
         let mut file = File::create(&self.file_path).await?;
+        // let mut file = File::create(&self.file_path.file_name().unwrap()).await?;
 
         file.write_all(&bytes).await?;
 
@@ -151,7 +152,7 @@ impl Transfer {
         Ok(open_file_metadata.len())
     }
 
-    async fn install_package(&self) -> Result<(), std::io::Error> {
+    pub async fn install_package(&self) -> Result<(), std::io::Error> {
         let command = Command::new("dpkg")
             .arg("--install")
             .arg(&self.filename)
@@ -186,7 +187,6 @@ mod tests {
             test_uri_parts.path_and_query.unwrap().as_str(),
             "/with/path/and/query",
         );
-        assert_eq!(test_transfer.initialized, true);
     }
 
     #[tokio::test(flavor = "multi_thread")]
