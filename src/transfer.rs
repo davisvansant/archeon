@@ -89,9 +89,9 @@ impl Transfer {
             Ok(response) => {
                 let response_body = response.into_body();
                 let bytes = Self::launch_body_to_bytes(response_body).await.unwrap();
-                // self.launch_create_file(bytes, content_length)
-                //     .await
-                //     .unwrap();
+                self.launch_create_file(bytes, content_length)
+                    .await
+                    .unwrap();
             }
             Err(error) => panic!("we need to retry here {}", error),
         }
@@ -126,7 +126,6 @@ impl Transfer {
         content_length: HeaderValue,
     ) -> Result<(), std::io::Error> {
         let mut file = File::create(&self.file_path).await?;
-        // let mut file = File::create(&self.file_path.file_name().unwrap()).await?;
 
         file.write_all(&bytes).await?;
 
@@ -231,8 +230,15 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn launch() -> Result<(), hyper::Error> {
         let test_mock_url = mockito::server_url();
-        let test_transfer = Transfer::init(&test_mock_url).await;
-        let mock = mock("GET", "/")
+        let test_mock_url_uri = Uri::from_str(&test_mock_url).unwrap();
+        let test_path_and_query = Uri::builder()
+            .scheme(test_mock_url_uri.scheme_str().unwrap())
+            .authority(test_mock_url_uri.authority().unwrap().as_str())
+            .path_and_query("/test_launch_file.txt")
+            .build()
+            .unwrap();
+        let test_transfer = Transfer::init(&test_path_and_query.to_string()).await;
+        let mock = mock("GET", "/test_launch_file.txt")
             .with_status(200)
             .with_header("content-length", "9")
             .with_body(b"test_body")
@@ -240,6 +246,10 @@ mod tests {
         test_transfer.launch().await;
         mock.assert();
         assert!(mock.matched());
+        assert_eq!(
+            test_transfer.file_path.to_str().unwrap(),
+            "/tmp/archeon/test_launch_file.txt",
+        );
         Ok(())
     }
 
@@ -304,14 +314,18 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn install_package() -> Result<(), std::io::Error> {
-        // let f = Path::new("some_test_filename.deb");
         let test_mock_url = mockito::server_url();
-        // test_mock_url.push_str("/some_test_filename.deb");
-        let test_transfer = Transfer::init(&test_mock_url).await;
-        // let mock = mock("GET", "/some_test_filename.deb")
-        let mock = mock("GET", "/")
+        let test_mock_url_uri = Uri::from_str(&test_mock_url).unwrap();
+        let test_path_and_query = Uri::builder()
+            .scheme(test_mock_url_uri.scheme_str().unwrap())
+            .authority(test_mock_url_uri.authority().unwrap().as_str())
+            .path_and_query("/test_install_package_file.txt")
+            .build()
+            .unwrap();
+        let test_transfer = Transfer::init(&test_path_and_query.to_string()).await;
+        let mock = mock("GET", "/test_install_package_file.txt")
             .with_status(200)
-            // .with_body_from_file(f)
+            .with_header("content-length", "9")
             .with_body(b"test_body")
             .create();
         test_transfer.launch().await;
