@@ -82,34 +82,29 @@ impl Transfer {
         file_path
     }
 
-    pub async fn launch(&self) {
+    pub async fn launch(&self) -> Result<(), Box<dyn std::error::Error>> {
         let uri = self.uri.to_owned();
-        let content_length = self.launch_content_length().await;
-        match self.client.get(uri).await {
-            Ok(response) => {
-                let response_body = response.into_body();
-                let bytes = Self::launch_body_to_bytes(response_body).await.unwrap();
-                self.launch_create_file(bytes, content_length)
-                    .await
-                    .unwrap();
-            }
-            Err(error) => panic!("we need to retry here {}", error),
-        }
+        let content_length = self.launch_content_length().await?;
+        let response = self.client.get(uri).await?;
+        let response_body = response.into_body();
+        let bytes = Self::launch_body_to_bytes(response_body).await?;
+
+        self.launch_create_file(bytes, content_length).await?;
+
+        Ok(())
     }
 
-    async fn launch_content_length(&self) -> HeaderValue {
+    async fn launch_content_length(&self) -> Result<HeaderValue, hyper::Error> {
         let request = Request::head(&self.uri)
             .body(Body::empty())
             .expect("Could not Build Request!");
 
-        let response = self.client.request(request).await;
-        let response_parts = match response {
-            Ok(response) => response.into_parts(),
-            Err(error) => panic!("{}", error),
-        };
+        let response = self.client.request(request).await?;
+        let response_parts = response.into_parts();
         let content_length = response_parts.0.headers.get(CONTENT_LENGTH);
+
         if let Some(header_value) = content_length {
-            header_value.to_owned()
+            Ok(header_value.to_owned())
         } else {
             panic!("Could not retrieve 'Content-Length' header!")
         }
@@ -228,7 +223,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn launch() -> Result<(), hyper::Error> {
+    async fn launch() -> Result<(), Box<dyn std::error::Error>> {
         let test_mock_url = mockito::server_url();
         let test_mock_url_uri = Uri::from_str(&test_mock_url).unwrap();
         let test_path_and_query = Uri::builder()
@@ -248,7 +243,7 @@ mod tests {
             .with_header("content-length", "9")
             .with_body(b"test_body")
             .create();
-        test_transfer.launch().await;
+        test_transfer.launch().await?;
         mock_get_request.assert();
         assert!(mock_get_request.matched());
         mock_head_request.assert();
@@ -269,7 +264,7 @@ mod tests {
             .with_header("Content-Length", "100000")
             .with_body("")
             .create();
-        let test_content_length_value = test_transfer.launch_content_length().await;
+        let test_content_length_value = test_transfer.launch_content_length().await?;
         mock.assert();
         assert!(mock.matched());
         assert_eq!(test_content_length_value.to_str().unwrap(), "100000");
@@ -320,7 +315,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn install_package() -> Result<(), std::io::Error> {
+    async fn install_package() -> Result<(), Box<dyn std::error::Error>> {
         let test_mock_url = mockito::server_url();
         let test_mock_url_uri = Uri::from_str(&test_mock_url).unwrap();
         let test_path_and_query = Uri::builder()
@@ -335,7 +330,7 @@ mod tests {
             .with_header("content-length", "9")
             .with_body(b"test_body")
             .create();
-        test_transfer.launch().await;
+        test_transfer.launch().await?;
         test_transfer.install_package().await?;
         mock.assert();
         assert!(mock.matched());
