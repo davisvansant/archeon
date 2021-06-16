@@ -23,21 +23,21 @@ pub struct Transfer {
 }
 
 impl Transfer {
-    pub async fn init(uri: &str) -> Transfer {
+    pub async fn init(uri: &str) -> Result<Transfer, Box<dyn std::error::Error>> {
         let https = HttpsConnector::new();
         let client = Client::builder().build(https);
         let uri = Uri::from_str(uri).expect("Unable to parse URI!");
         let filename = Self::init_filename(&uri).await;
-        let temp_dir = Self::init_temp_dir().await;
+        let temp_dir = Self::init_temp_dir().await?;
         let file_path = Self::init_file_path(&temp_dir, &filename).await;
 
-        Transfer {
+        Ok(Transfer {
             client,
             uri,
             filename,
             temp_dir,
             file_path,
-        }
+        })
     }
 
     async fn init_filename(uri: &Uri) -> PathBuf {
@@ -59,7 +59,7 @@ impl Transfer {
         path
     }
 
-    async fn init_temp_dir() -> PathBuf {
+    async fn init_temp_dir() -> Result<PathBuf, std::io::Error> {
         let mut path = PathBuf::with_capacity(15);
         let temp_dir = temp_dir();
         let temp_dir_path = "archeon";
@@ -67,10 +67,9 @@ impl Transfer {
         path.push(temp_dir);
         path.push(temp_dir_path);
 
-        match create_dir_all(&path).await {
-            Ok(()) => path,
-            Err(error) => panic!("{}", error),
-        }
+        create_dir_all(&path).await?;
+
+        Ok(path)
     }
 
     async fn init_file_path(temp_dir: &Path, filename: &Path) -> PathBuf {
@@ -168,9 +167,9 @@ mod tests {
     use mockito::mock;
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn init() {
+    async fn init() -> Result<(), Box<dyn std::error::Error>> {
         let test_uri = "http://some_test_authority/with/path/and/query";
-        let test_transfer = Transfer::init(test_uri).await;
+        let test_transfer = Transfer::init(test_uri).await?;
         let test_uri_parts = test_transfer.uri.into_parts();
         assert_eq!(test_uri_parts.scheme.unwrap().as_str(), "http");
         assert_eq!(
@@ -181,13 +180,15 @@ mod tests {
             test_uri_parts.path_and_query.unwrap().as_str(),
             "/with/path/and/query",
         );
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn init_filename() {
+    async fn init_filename() -> Result<(), Box<dyn std::error::Error>> {
         let test_uri = "http://some_test_authority/with/path/and/query.extension";
-        let test_transfer = Transfer::init(test_uri).await;
+        let test_transfer = Transfer::init(test_uri).await?;
         assert_eq!(test_transfer.filename.to_str().unwrap(), "query.extension");
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -199,16 +200,16 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn init_temp_dir() -> Result<(), std::io::Error> {
-        Transfer::init_temp_dir().await;
+        Transfer::init_temp_dir().await?;
         let test_temp_dir_metadata = tokio::fs::metadata("/tmp/archeon").await?;
         assert_eq!(test_temp_dir_metadata.is_dir(), true);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn init_file_path() -> Result<(), std::io::Error> {
+    async fn init_file_path() -> Result<(), Box<dyn std::error::Error>> {
         let test_uri = "http://some_test_authority/with/path/and/query.extension";
-        let test_transfer = Transfer::init(test_uri).await;
+        let test_transfer = Transfer::init(test_uri).await?;
         let test_init_file_path =
             Transfer::init_file_path(&test_transfer.temp_dir, &test_transfer.filename).await;
         assert_eq!(
@@ -232,7 +233,7 @@ mod tests {
             .path_and_query("/test_launch_file.txt")
             .build()
             .unwrap();
-        let test_transfer = Transfer::init(&test_path_and_query.to_string()).await;
+        let test_transfer = Transfer::init(&test_path_and_query.to_string()).await?;
         let mock_get_request = mock("GET", "/test_launch_file.txt")
             .with_status(200)
             .with_header("content-length", "9")
@@ -256,9 +257,9 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn lauch_content_length() -> Result<(), hyper::Error> {
+    async fn lauch_content_length() -> Result<(), Box<dyn std::error::Error>> {
         let test_mock_url = mockito::server_url();
-        let test_transfer = Transfer::init(&test_mock_url).await;
+        let test_transfer = Transfer::init(&test_mock_url).await?;
         let mock = mock("HEAD", "/")
             .with_status(200)
             .with_header("Content-Length", "100000")
@@ -281,11 +282,11 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn launch_create_file() -> Result<(), std::io::Error> {
+    async fn launch_create_file() -> Result<(), Box<dyn std::error::Error>> {
         let test_bytes = Bytes::from("test_bytes");
         let test_content_length = HeaderValue::from_static("10");
         let test_uri = "http://test-create-file/test_create_file.txt";
-        let test_transfer = Transfer::init(test_uri).await;
+        let test_transfer = Transfer::init(test_uri).await?;
         if let Ok(()) =
             Transfer::launch_create_file(&test_transfer, test_bytes, test_content_length).await
         {
@@ -299,11 +300,11 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn launch_get_file_length() -> Result<(), std::io::Error> {
+    async fn launch_get_file_length() -> Result<(), Box<dyn std::error::Error>> {
         let test_bytes = Bytes::from("test_bytes");
         let test_content_length = HeaderValue::from_static("10");
         let test_uri = "http://get-file-length/test_get_file_length.txt";
-        let test_transfer = Transfer::init(test_uri).await;
+        let test_transfer = Transfer::init(test_uri).await?;
         if let Ok(()) =
             Transfer::launch_create_file(&test_transfer, test_bytes, test_content_length).await
         {
@@ -324,7 +325,7 @@ mod tests {
             .path_and_query("/test_install_package_file.txt")
             .build()
             .unwrap();
-        let test_transfer = Transfer::init(&test_path_and_query.to_string()).await;
+        let test_transfer = Transfer::init(&test_path_and_query.to_string()).await?;
         let mock = mock("GET", "/test_install_package_file.txt")
             .with_status(200)
             .with_header("content-length", "9")
