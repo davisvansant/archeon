@@ -41,15 +41,11 @@ impl Transfer {
     }
 
     async fn init_filename(uri: &Uri) -> PathBuf {
-        match uri.path_and_query() {
-            None => panic!("cannot get filename from URI!"),
-            Some(path_and_query) => {
-                let filename = path_and_query.as_str().rsplit_once("/");
-                match filename {
-                    None => Self::init_create_path(path_and_query.as_str()).await,
-                    Some(filename) => Self::init_create_path(filename.1).await,
-                }
-            }
+        let path_and_query = uri.path_and_query().expect("cannot get filename from URI!");
+        if let Some(filename) = path_and_query.as_str().rsplit_once("/") {
+            Self::init_create_path(filename.1).await
+        } else {
+            Self::init_create_path(path_and_query.as_str()).await
         }
     }
 
