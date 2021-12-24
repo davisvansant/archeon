@@ -190,7 +190,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn init_create_path() {
         let test_filename = "some_test_filename.extension";
-        let test_path = Transfer::init_create_path(&test_filename).await;
+        let test_path = Transfer::init_create_path(test_filename).await;
         assert_eq!(test_path.to_str().unwrap(), "some_test_filename.extension");
     }
 
@@ -198,7 +198,7 @@ mod tests {
     async fn init_temp_dir() -> Result<(), std::io::Error> {
         Transfer::init_temp_dir().await?;
         let test_temp_dir_metadata = tokio::fs::metadata("/tmp/archeon").await?;
-        assert_eq!(test_temp_dir_metadata.is_dir(), true);
+        assert!(test_temp_dir_metadata.is_dir());
         Ok(())
     }
 
@@ -288,7 +288,7 @@ mod tests {
         {
             let test_file = File::open(&test_transfer.file_path).await?;
             let test_file_metadata = test_file.metadata().await?;
-            assert_eq!(test_file_metadata.is_file(), true);
+            assert!(test_file_metadata.is_file());
             assert_eq!(test_file_metadata.len(), 10);
             tokio::fs::remove_file(&test_transfer.file_path).await?;
         }
