@@ -42,7 +42,7 @@ impl Transfer {
 
     async fn init_filename(uri: &Uri) -> PathBuf {
         let path_and_query = uri.path_and_query().expect("cannot get filename from URI!");
-        if let Some(filename) = path_and_query.as_str().rsplit_once("/") {
+        if let Some(filename) = path_and_query.as_str().rsplit_once('/') {
             Self::init_create_path(filename.1).await
         } else {
             Self::init_create_path(path_and_query.as_str()).await
@@ -160,7 +160,6 @@ impl Transfer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mockito::mock;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn init() -> Result<(), Box<dyn std::error::Error>> {
@@ -221,7 +220,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn launch() -> Result<(), Box<dyn std::error::Error>> {
-        let test_mock_url = mockito::server_url();
+        let mut test_server = mockito::Server::new();
+        let test_mock_url = test_server.url();
         let test_mock_url_uri = Uri::from_str(&test_mock_url).unwrap();
         let test_path_and_query = Uri::builder()
             .scheme(test_mock_url_uri.scheme_str().unwrap())
@@ -230,12 +230,14 @@ mod tests {
             .build()
             .unwrap();
         let test_transfer = Transfer::init(&test_path_and_query.to_string()).await?;
-        let mock_get_request = mock("GET", "/test_launch_file.txt")
+        let mock_get_request = test_server
+            .mock("GET", "/test_launch_file.txt")
             .with_status(200)
             .with_header("content-length", "9")
             .with_body(b"test_body")
             .create();
-        let mock_head_request = mock("HEAD", "/test_launch_file.txt")
+        let mock_head_request = test_server
+            .mock("HEAD", "/test_launch_file.txt")
             .with_status(200)
             .with_header("content-length", "9")
             .with_body(b"test_body")
@@ -254,9 +256,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn lauch_content_length() -> Result<(), Box<dyn std::error::Error>> {
-        let test_mock_url = mockito::server_url();
+        let mut test_server = mockito::Server::new();
+        let test_mock_url = test_server.url();
         let test_transfer = Transfer::init(&test_mock_url).await?;
-        let mock = mock("HEAD", "/")
+        let mock = test_server
+            .mock("HEAD", "/")
             .with_status(200)
             .with_header("Content-Length", "100000")
             .with_body("")
@@ -313,7 +317,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn install_package() -> Result<(), Box<dyn std::error::Error>> {
-        let test_mock_url = mockito::server_url();
+        let mut test_server = mockito::Server::new();
+        let test_mock_url = test_server.url();
         let test_mock_url_uri = Uri::from_str(&test_mock_url).unwrap();
         let test_path_and_query = Uri::builder()
             .scheme(test_mock_url_uri.scheme_str().unwrap())
@@ -321,16 +326,28 @@ mod tests {
             .path_and_query("/test_install_package_file.txt")
             .build()
             .unwrap();
+
         let test_transfer = Transfer::init(&test_path_and_query.to_string()).await?;
-        let mock = mock("GET", "/test_install_package_file.txt")
+        let mock_get_request = test_server
+            .mock("GET", "/test_install_package_file.txt")
             .with_status(200)
             .with_header("content-length", "9")
             .with_body(b"test_body")
             .create();
+
+        let mock_head_request = test_server
+            .mock("HEAD", "/test_install_package_file.txt")
+            .with_status(200)
+            .with_header("content-length", "9")
+            .with_body(b"test_body")
+            .create();
+
         test_transfer.launch().await?;
         test_transfer.install_package().await?;
-        mock.assert();
-        assert!(mock.matched());
+        mock_get_request.assert();
+        assert!(mock_get_request.matched());
+        mock_head_request.assert();
+        assert!(mock_head_request.matched());
         Ok(())
     }
 }
